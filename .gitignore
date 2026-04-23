@@ -1,17 +1,129 @@
-# Python
-__pycache__/
-*.pyc
+# =========================
+
+# 🔹 Python
+
+# =========================
+
+**pycache**/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
 
 # Virtual environments
+
 venv/
 .venv/
+env/
+ENV/
 RAGbot/venv/
 RAGbot/.venv/
 RAGbot/backend/venv/
 
-# Big binary stuff
-*.pyd
-*.dll
-*.so
+# Python packaging
+
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Logs
+
+*.log
+
+# =========================
+
+# 🔹 Environment variables (IMPORTANT)
+
+# =========================
+
+.env
+.env.*
+*.env
+
+# =========================
+
+# 🔹 Jupyter / ML
+
+# =========================
+
+.ipynb_checkpoints/
+
+# Model/cache folders (very important for your RAG project)
+
+.cache/
+.huggingface/
+transformers_cache/
+sentence_transformers/
+chromadb/
+chroma/
+db/
+
+# Large files
+
 *.bin
+*.pt
+*.pth
+*.ckpt
+*.h5
 *.zip
+
+# =========================
+
+# 🔹 Node / React / Vite
+
+# =========================
+
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Logs
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+
+# 🔹 OS files
+
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+
+# 🔹 IDE / Editor
+
+# =========================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+
+# 🔹 Testing / Coverage
+
+# =========================
+
+.coverage
+htmlcov/
+.pytest_cache/
+
+# =========================
+
+# 🔹 Misc
+
+# =========================
+
+*.sqlite3
+*.db
+*.csv
+*.parquet
