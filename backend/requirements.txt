@@ -1,0 +1,37 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-multipart
+
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+langchain-google-genai
+google-generativeai
+langchain-groq
+
+chromadb
+psycopg2
+
+pypdf
+PyPDF2
+
+numpy
+python-dotenv
+requests
+typing_extensions
+
+# New dependencies
+rank-bm25                  # BM25 hybrid search
+sentence-transformers      # cross-encoder reranker
+rouge-score                # ROUGE evaluation metric
+nltk                       # BLEU evaluation metric
+slowapi                    # Rate limiting
+cachetools                 # In-memory caching
+sse-starlette              # Streaming responses (SSE)
+httpx                      # Async HTTP client for background tasks
+aiofiles                   # Async file I/O
+docx2txt                   # DOCX text extraction
+python-docx                # DOCX support

@@ -1,0 +1,74 @@
+/* DocumentBadges.css */
+
+.doc-badges-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 10px 0 4px;
+  animation: fadeIn 0.25s ease both;
+}
+
+.doc-badges-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.doc-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 5px 10px 5px 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  transition: border-color 0.15s;
+  max-width: 240px;
+}
+.doc-badge:hover { border-color: var(--accent); }
+
+.doc-icon { font-size: 0.85rem; }
+
+.doc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 130px;
+  color: var(--text-primary);
+}
+
+.doc-chunks {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: 99px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+.doc-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 1px 2px;
+  line-height: 1;
+  border-radius: 50%;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.doc-remove:hover { color: var(--danger); }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

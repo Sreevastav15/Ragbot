@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+RAGbot/venv/
+RAGbot/.venv/
+RAGbot/backend/venv/
+
+# Big binary stuff
+*.pyd
+*.dll
+*.so
+*.bin
+*.zip
