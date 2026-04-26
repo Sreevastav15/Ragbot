@@ -8,7 +8,7 @@ def get_reranker():
         reranker = CrossEncoder("BAAI/bge-reranker-base")
     return reranker
 
-
+model = get_reranker()
 def rerank(query, docs):
     """
     docs: list of langchain Document objects
@@ -16,8 +16,6 @@ def rerank(query, docs):
     """
     if not docs:
         return []
-
-    model = get_reranker()   # ✅ load only when needed
 
     pairs = [[query, d.page_content] for d in docs]
     scores = model.predict(pairs)

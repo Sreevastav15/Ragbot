@@ -1,55 +1,91 @@
 # app/services/query_rewriter.py
+
 """
-Query rewriting: converts vague or ambiguous questions into
-retrieval-optimised queries using a lightweight LLM call.
-Also computes query complexity to dynamically set k.
+Query rewriting using LangChain 0.2+ Runnable pipeline.
+
+Replaces deprecated LLMChain with:
+    PromptTemplate | LLM | OutputParser
+
+Uses:
+- QUERY_REWRITER_TEMPLATE (PromptTemplate)
+- QUERY_REWRITER_FORMAT_INSTRUCTIONS
+- safe_parse_rewritten_query (custom parser)
+
+Ensures:
+- structured JSON output from LLM
+- safe fallback to original query
 """
 
 from __future__ import annotations
-import re
 import os
+from typing import Any
+
 from langchain_groq import ChatGroq
+from langchain_core.output_parsers import StrOutputParser
+
+from app.prompts.prompts import QUERY_REWRITER_TEMPLATE
+from app.parser.parser import (
+    QUERY_REWRITER_FORMAT_INSTRUCTIONS,
+    safe_parse_rewritten_query,
+)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
-def _llm() -> ChatGroq:
-    return ChatGroq(groq_api_key=GROQ_API_KEY, model="llama-3.3-70b-versatile")
+# ── LLM Factory ──────────────────────────────────────────────────────────────
 
+def _llm() -> ChatGroq:
+    return ChatGroq(
+        groq_api_key=GROQ_API_KEY,
+        model="llama-3.3-70b-versatile",
+        temperature=0,
+    )
+
+
+# ── Query Rewriting ──────────────────────────────────────────────────────────
 
 def rewrite_query(question: str) -> str:
     """
-    Rewrites a vague user question into a more specific retrieval query.
-    Returns the original question if rewriting fails or adds no value.
-    """
-    prompt = f"""You are a search query optimizer for a RAG system.
-Rewrite the following user question into a precise, keyword-rich retrieval query
-that will help find the most relevant document chunks.
-Output ONLY the rewritten query, nothing else.
+    Rewrites a vague user question into a precise, keyword-rich retrieval
+    query using LangChain 0.2 Runnable pipeline.
 
-User question: {question}
-Rewritten query:"""
+    Flow:
+        PromptTemplate → LLM → StrOutputParser → safe_parse_rewritten_query
+
+    Falls back to original question if parsing fails or output is invalid.
+    """
 
     try:
-        result = _llm().invoke(prompt)
-        rewritten = result.content.strip().strip('"').strip("'")
-        # Sanity check: must be non-empty and not too long
-        if 5 <= len(rewritten) <= 300:
-            return rewritten
-    except Exception:
-        pass
-    return question  # fallback to original
+        # Build runnable chain
+        chain = (
+            QUERY_REWRITER_TEMPLATE
+            | _llm()
+            | StrOutputParser()
+        )
 
+        # Invoke chain
+        raw: str = chain.invoke({
+            "question": question,
+            "format_instructions": QUERY_REWRITER_FORMAT_INSTRUCTIONS,
+        })
+
+        # Parse + validate output
+        return safe_parse_rewritten_query(raw, question)
+
+    except Exception:
+        return question  # safe fallback
+
+
+# ── Dynamic Retrieval Size ───────────────────────────────────────────────────
 
 def compute_k(question: str) -> int:
     """
     Dynamically choose how many chunks to retrieve based on query complexity.
-    Simple heuristic + keyword analysis.
     """
+
     q = question.lower()
     word_count = len(q.split())
 
-    # Multi-part or comparison questions → need more context
     is_complex = any(kw in q for kw in [
         "compare", "difference", "versus", "vs", "all", "list",
         "summarize", "explain", "describe", "overview", "both",
@@ -57,8 +93,8 @@ def compute_k(question: str) -> int:
     ])
 
     if is_complex or word_count > 20:
-        return 20   # wide net for complex queries
+        return 20
     elif word_count > 10:
         return 12
     else:
-        return 8    # tight retrieval for simple factual questions
+        return 8

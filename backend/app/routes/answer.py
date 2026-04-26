@@ -21,7 +21,7 @@ from app.services.memory_service import (
     append_message,
     get_recent_messages,
 )
-from app.services.eval_service import compute_rouge, compute_retrieval_recall, compute_mrr
+from app.services.eval_service import compute_and_log_metrics
 
 router = APIRouter(prefix="/answer", tags=["Answer"])
 limiter = Limiter(key_func=get_remote_address)
@@ -116,11 +116,9 @@ async def answer_question(request: Request, payload: AnswerRequest, db: Session 
 
     append_message(db, session.id, "assistant", result["answer"])
 
-    # Compute RAG eval metrics
-    retrieved_texts = [s.get("filename", "") for s in result.get("sources", [])]
-    rouge = compute_rouge(payload.question, result["answer"])
-    recall = compute_retrieval_recall(payload.question, retrieved_texts)
-    mrr = compute_mrr(payload.question, retrieved_texts)
+    # # Compute RAG eval metrics
+    # retrieved_texts = [s.get("filename", "") for s in result.get("sources", [])]
+    # metrics=compute_and_log_metrics(payload.question, result["answer"], retrieved_texts, k=6)
 
     # Save answer with metrics
     answer_entry = Answer(
@@ -128,9 +126,9 @@ async def answer_question(request: Request, payload: AnswerRequest, db: Session 
         question_text=payload.question,
         answer_text=result["answer"],
         response_time_ms=result["response_time_ms"],
-        rouge_score=rouge,
-        retrieval_recall=recall,
-        mrr_score=mrr,
+        rouge_score=0,
+        retrieval_recall=0,
+        mrr_score=0,
         sources=result.get("sources", []),
     )
     db.add(answer_entry)
@@ -143,7 +141,7 @@ async def answer_question(request: Request, payload: AnswerRequest, db: Session 
         "sources": result.get("sources", []),
         "k_used": result["k_used"],
         "response_time_ms": result["response_time_ms"],
-        "metrics": {"rouge": rouge, "recall_at_k": recall, "mrr": mrr},
+        # "metrics": {"rouge": rouge, "recall_at_k": recall, "mrr": mrr},
         "session_id": session.id,
         "cached": False,
     }

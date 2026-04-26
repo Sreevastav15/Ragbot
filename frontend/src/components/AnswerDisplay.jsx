@@ -3,14 +3,25 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./AnswerDisplay.css";
 
+/**
+ * Renders one question/answer pair.
+ *
+ * Props
+ * ─────
+ * question       string   — the user's question
+ * answer         string   — the LLM's answer (empty while loading)
+ * sources        array    — [{ filename, page }]
+ * responseTimeMs number   — backend latency in ms
+ * rewrittenQuery string   — the rewritten retrieval query (optional)
+ * isLoading      bool     — true while awaiting the non-streaming response
+ */
 function AnswerDisplay({
   question,
   answer,
   sources = [],
-  metrics = null,
   responseTimeMs = null,
   rewrittenQuery = null,
-  isStreaming = false,
+  isLoading = false,
 }) {
   if (!question) return null;
 
@@ -18,8 +29,11 @@ function AnswerDisplay({
     new Map(sources.map((s) => [`${s.filename}:${s.page}`, s])).values()
   );
 
+  const showFooter = !isLoading && (answer || uniqueSources.length > 0);
+
   return (
     <div className="answer-block animate-in">
+
       {/* User bubble */}
       <div className="user-row">
         <div className="user-bubble">
@@ -31,6 +45,7 @@ function AnswerDisplay({
       <div className="bot-row">
         <div className="bot-avatar">◈</div>
         <div className="bot-content">
+
           {/* Rewritten query chip */}
           {rewrittenQuery && rewrittenQuery !== question && (
             <div className="rewrite-chip">
@@ -39,29 +54,25 @@ function AnswerDisplay({
             </div>
           )}
 
-          {/* Answer body */}
+          {/* Answer bubble */}
           <div className="bot-bubble">
-            {answer ? (
-              <>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
-                {isStreaming && <span className="streaming-cursor" />}
-              </>
-            ) : (
+            {isLoading || !answer ? (
+              /* Thinking dots while waiting for response */
               <div className="thinking-dots">
                 <span /><span /><span />
               </div>
+            ) : (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
             )}
           </div>
 
-          {/* Footer row */}
-          {!isStreaming && (answer || sources.length > 0) && (
+          {/* Footer: timing + sources */}
+          {showFooter && (
             <div className="answer-footer">
-              {/* Timing */}
               {responseTimeMs != null && (
                 <span className="timing-badge">⚡ {responseTimeMs}ms</span>
               )}
 
-              {/* Sources */}
               {uniqueSources.length > 0 && (
                 <div className="sources-row">
                   <span className="sources-label">Sources:</span>
@@ -72,23 +83,9 @@ function AnswerDisplay({
                   ))}
                 </div>
               )}
-
-              {/* Inline metrics */}
-              {metrics && (
-                <div className="inline-metrics">
-                  {metrics.rouge != null && (
-                    <span className="metric-tag">ROUGE-L {(metrics.rouge * 100).toFixed(1)}%</span>
-                  )}
-                  {metrics.recall != null && (
-                    <span className="metric-tag">Recall {(metrics.recall * 100).toFixed(1)}%</span>
-                  )}
-                  {metrics.mrr != null && (
-                    <span className="metric-tag">MRR {metrics.mrr.toFixed(2)}</span>
-                  )}
-                </div>
-              )}
             </div>
           )}
+
         </div>
       </div>
     </div>

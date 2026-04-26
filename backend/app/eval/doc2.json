@@ -1,0 +1,62 @@
+[
+  {
+    "question": "What is the main contribution of the EfficientNet paper?",
+    "answer": "It proposes a compound scaling method to uniformly scale depth, width, and resolution of CNNs."
+  },
+  {
+    "question": "What problem does EfficientNet solve?",
+    "answer": "It addresses inefficient and unbalanced scaling of convolutional neural networks."
+  },
+  {
+    "question": "What are the three dimensions of scaling in CNNs?",
+    "answer": "Depth, width, and input resolution."
+  },
+  {
+    "question": "What is compound scaling?",
+    "answer": "A method that scales depth, width, and resolution together using fixed ratios."
+  },
+  {
+    "question": "Why is scaling only one dimension suboptimal?",
+    "answer": "Because it leads to diminishing accuracy gains and inefficient resource use."
+  },
+  {
+    "question": "What does the coefficient φ control?",
+    "answer": "It controls how much the model is scaled given available computational resources."
+  },
+  {
+    "question": "What constraint is used in compound scaling?",
+    "answer": "α · β^2 · γ^2 ≈ 2 to maintain balanced computational growth."
+  },
+  {
+    "question": "What is EfficientNet-B0?",
+    "answer": "The baseline model obtained using neural architecture search."
+  },
+  {
+    "question": "What building block is used in EfficientNet?",
+    "answer": "Mobile inverted bottleneck convolution (MBConv)."
+  },
+  {
+    "question": "How does EfficientNet-B7 perform on ImageNet?",
+    "answer": "It achieves 84.3% top-1 accuracy."
+  },
+  {
+    "question": "How does EfficientNet compare to GPipe?",
+    "answer": "It achieves similar accuracy while being 8.4x smaller and 6.1x faster."
+  },
+  {
+    "question": "Why does higher resolution improve performance?",
+    "answer": "Because it captures more fine-grained patterns in images."
+  },
+  {
+    "question": "What happens when networks become too deep?",
+    "answer": "Training becomes difficult and accuracy gains diminish."
+  },
+  {
+    "question": "What is the key observation about scaling dimensions?",
+    "answer": "They are interdependent and must be balanced for optimal performance."
+  },
+  {
+    "question": "How are EfficientNet models B1 to B7 created?",
+    "answer": "By scaling the baseline network using fixed compound scaling coefficients."
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "question": "What problem does the paper address?",
+    "answer": "The paper addresses classification of winter road surface conditions using image data."
+  },
+  {
+    "question": "Why are traditional methods like SVM and Random Forest insufficient?",
+    "answer": "They perform poorly due to image noise such as sunlight glare and residual salts."
+  },
+  {
+    "question": "What model is proposed in the paper?",
+    "answer": "A pre-trained convolutional neural network based on VGG16 with additional fully connected layers."
+  },
+  {
+    "question": "Why is a pre-trained CNN used instead of training from scratch?",
+    "answer": "Because it leverages features learned from large datasets and improves accuracy with limited training data."
+  },
+  {
+    "question": "How is the VGG16 model modified for this task?",
+    "answer": "Two additional fully connected layers are added and the model is fine-tuned with road surface images."
+  },
+  {
+    "question": "What are the three classes used for classification?",
+    "answer": "Bare, partly snow-covered, and fully snow-covered."
+  },
+  {
+    "question": "What is the role of max pooling in CNN?",
+    "answer": "Max pooling reduces spatial dimensions and extracts dominant features."
+  },
+  {
+    "question": "Why are early convolutional layers frozen during training?",
+    "answer": "Because they capture general features that should not be disrupted."
+  },
+  {
+    "question": "What optimizer is used for training?",
+    "answer": "Stochastic Gradient Descent (SGD)."
+  },
+  {
+    "question": "Why is a low learning rate used in fine-tuning?",
+    "answer": "To avoid large weight updates that could destroy pre-trained features."
+  },
+  {
+    "question": "What is the purpose of fine-tuning only the last layers?",
+    "answer": "To adapt the model to domain-specific features while preventing overfitting."
+  },
+  {
+    "question": "What accuracy was achieved after fine-tuning in two-class classification?",
+    "answer": "Approximately 90.72% testing accuracy."
+  },
+  {
+    "question": "What is a false positive in this context?",
+    "answer": "Incorrectly classifying a snow-covered road as bare or vice versa."
+  },
+  {
+    "question": "Why is false positive for bare roads critical?",
+    "answer": "Because it can compromise safety by underestimating hazardous conditions."
+  },
+  {
+    "question": "How were the training images collected?",
+    "answer": "Using patrol vehicles and mobile data collection units at regular intervals."
+  }
+]
