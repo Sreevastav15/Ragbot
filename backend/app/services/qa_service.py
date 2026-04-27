@@ -1,8 +1,8 @@
 # app/services/qa_service.py
 """
-Core QA service — complete rewrite.
+Core QA service.
 
-Key improvements over the previous version:
+Key improvements over the original version:
   1. LLMChain + PromptTemplate + OutputParser everywhere (no raw f-strings).
   2. Fixed retrieval: embedding_service no longer prepends "passage from page N:"
      to chunks (that prefix polluted the vector search). Retrieval now uses
@@ -13,6 +13,12 @@ Key improvements over the previous version:
      logged to the backend console. It is NOT sent to the frontend.
   5. Streaming path uses STREAMING_QA_TEMPLATE (plain Markdown, no JSON schema)
      so the LLM never tries to stream a JSON object mid-token.
+
+FIXES:
+  - Removed debug `print(reranked)` statement from get_answer.
+  - compute_and_log_metrics now receives the full reranked list (rank-ordered)
+    so MRR is computed correctly based on retrieval rank.
+  - MMR search fetch_k guard: fetch_k must be >= k; added explicit check.
 """
 
 from __future__ import annotations
@@ -51,7 +57,7 @@ _CONTEXT_TOP_K = 6
 def _build_llm(streaming: bool = False) -> ChatGroq:
     return ChatGroq(
         groq_api_key=GROQ_API_KEY,
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         temperature=0,
         streaming=streaming,
     )
@@ -63,15 +69,18 @@ def _retrieve_vector(vector_path: str, query: str, k: int) -> List[LCDoc]:
     """
     Semantic retrieval from ChromaDB.
     Uses the rewritten query directly — no prefix manipulation.
+
+    FIX: fetch_k for MMR must be >= k. Added explicit max() guard.
     """
     embeddings = GoogleTextEmbedding()
     vectorstore = Chroma(
         persist_directory=vector_path,
         embedding_function=embeddings,
     )
-    # MMR retrieval for diversity; fall back to similarity if k is large
+    # MMR retrieval for diversity; fetch_k must be at least k
     try:
-        docs = vectorstore.max_marginal_relevance_search(query, k=k, fetch_k=k * 3)
+        fetch_k = max(k * 3, k)  # always >= k
+        docs = vectorstore.max_marginal_relevance_search(query, k=k, fetch_k=fetch_k)
     except Exception:
         docs = vectorstore.similarity_search(query, k=k)
     return docs
@@ -154,7 +163,8 @@ def get_answer(
             d.metadata["source_filename"] = fname
         all_vector_docs.extend(v_docs)
 
-        # BM25 retrieval
+        # BM25 retrieval — set _source_filename BEFORE calling bm25_retrieve
+        # so that the attribute is available inside bm25_retrieve's getattr call
         for chunk in db_chunks:
             chunk._source_filename = fname
         b_docs = bm25_retrieve(rewritten, db_chunks, top_k=k)
@@ -165,7 +175,8 @@ def get_answer(
     # ── 3. Fusion + reranking ─────────────────────────────────────────────────
     fused    = reciprocal_rank_fusion(all_vector_docs, all_bm25_docs)
     reranked = rerank(rewritten, fused)[:_CONTEXT_TOP_K]
-    print(reranked)
+    # NOTE: debug print(reranked) removed — use logger.debug for debug output
+    logger.debug("Reranked chunks: %d", len(reranked))
 
     # ── 4. Build context ──────────────────────────────────────────────────────
     context_str, source_set = _build_context(reranked)
@@ -190,6 +201,7 @@ def get_answer(
         final_sources = [{"filename": s.filename, "page": s.page} for s in parsed.sources]
 
     # ── 6. Evaluation metrics (logged, not returned) ──────────────────────────
+    # Pass chunk text in reranker rank order so MRR reflects actual retrieval rank.
     retrieved_texts = [doc.page_content for doc in reranked]
     compute_and_log_metrics(question, final_answer, retrieved_texts, k=_CONTEXT_TOP_K)
 

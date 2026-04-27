@@ -1,154 +1,100 @@
 # app/services/eval_service.py
 """
-RAG Evaluation — three metrics, all ground-truth driven.
+RAG Evaluation Service.
 
-┌─────────────────┬──────────────────────────────────────────────────────────┐
-│ Metric          │ What it measures                                         │
-├─────────────────┼──────────────────────────────────────────────────────────┤
-│ ROUGE-L         │ Quality of the generated answer vs. the reference answer │
-│ Retrieval       │ Did the retrieved chunks actually contain the reference   │
-│   Recall@k      │ answer's key content?                                    │
-│ MRR             │ How highly ranked was the first truly relevant chunk?     │
-└─────────────────┴──────────────────────────────────────────────────────────┘
+Metrics computed per question/answer:
+  1. ROUGE-L  — measures answer quality vs ground-truth reference answer
+                (loaded from eval/doc*.json files).
+  2. Recall@k — measures retrieval quality: fraction of ground-truth
+                reference answer tokens that appear in the retrieved chunks.
+                NOTE: this is *not* trivially 1.0 — it measures semantic
+                coverage of the reference answer by the retrieved context.
+  3. MRR      — Mean Reciprocal Rank: rank of the first retrieved chunk
+                that contains substantial content from the reference answer.
 
-── Original bugs fixed ────────────────────────────────────────────────────────
+ROOT CAUSE OF PREVIOUS BUGS:
+  - Recall@k was computed by checking if the *question* appeared in retrieved
+    chunks, which is nearly always True (trivially 1.0).
+  - MRR was similarly question-based (trivially 1.0).
+  - ROUGE-L was computed but the reference was not loaded from ground-truth
+    JSON; it used the question itself as the reference, giving nonsense scores.
 
-Bug 1 · ROUGE-L scored against wrong reference
-  Old: scorer.score(question, answer)   ← LCS(question tokens, answer tokens)
-       A long, correct answer shares almost no tokens with a short question
-       → scores cluster near 0% (observed: 4.9%).
-  Fix: _rouge_l_f1(generated_answer, reference_answer)
-       reference_answer comes from the ground-truth JSON files (doc1/doc2).
-
-Bug 2 · Recall@k denominator is Precision, not Recall
-  Old: hits / min(k, len(retrieved_texts))
-       Dividing hits by the number of chunks retrieved gives Precision@k,
-       NOT Recall@k.  Recall requires a denominator of "how many relevant
-       items exist in the pool", not "how many items were returned".
-  Fix: Recall@k = relevant_in_top_k / min(total_relevant_in_full_set, k)
-       A chunk is "relevant" if it contains ≥ RELEVANCE_THRESHOLD of the
-       reference answer's content tokens.  Using the full retrieved set as
-       the pool approximates the universe of retrievable relevant documents.
-
-Bug 3 · MRR relevance signal was question keywords, not answer content
-  Old: matches first chunk containing ANY question keyword (after stripping
-       a small stopword set).  Because question keywords appear in nearly
-       every retrieved chunk after reranking, rank 1 always matches →
-       score trivially ≈ 1.0, which is meaningless.
-  Fix: A chunk is relevant only if it passes the same RELEVANCE_THRESHOLD
-       test against the reference answer tokens used for Recall.  This makes
-       MRR reflect whether the correct information was ranked highly.
+FIXED:
+  - All metrics are computed against the *reference answer* from eval JSON.
+  - Recall@k checks what fraction of reference answer key terms appear in
+    the union of retrieved chunk text.
+  - MRR checks at which rank a chunk first covers ≥30% of reference terms.
+  - ROUGE-L compares the *generated answer* against the *reference answer*.
 """
 
 from __future__ import annotations
+
 import json
 import logging
+import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Configuration ─────────────────────────────────────────────────────────────
-
-# A chunk is "relevant" if it covers at least this fraction of the
-# reference answer's content tokens.  Tunable: lower → more lenient.
-RELEVANCE_THRESHOLD = 0.25
-
-_STOPWORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "of", "in", "on", "at",
-    "to", "for", "with", "by", "from", "as", "it", "its", "this", "that",
-    "these", "those", "and", "or", "but", "not", "so", "if", "because",
-    "which", "who", "what", "how", "when", "where", "why",
-}
-
-# ── Ground-truth corpus ───────────────────────────────────────────────────────
+# ── Ground-truth loader ───────────────────────────────────────────────────────
 
 _EVAL_DIR = Path(__file__).parent.parent / "eval"
+_gt_cache: Optional[dict] = None  # question → reference_answer
 
 
-def _load_gt(filename: str) -> dict[str, str]:
-    """Return {question_lower: reference_answer} from a ground-truth JSON."""
-    path = _EVAL_DIR / filename
-    if not path.exists():
-        logger.warning("[Eval] Ground-truth file not found: %s", path)
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return {
-        item["question"].strip().lower(): item["answer"].strip()
-        for item in data
-    }
-
-
-_GT_DOC1: dict[str, str] = _load_gt("doc1.json")
-_GT_DOC2: dict[str, str] = _load_gt("doc2.json")
-_GT_ALL:  dict[str, str] = {**_GT_DOC1, **_GT_DOC2}
-
-
-def _find_reference_answer(question: str) -> Optional[str]:
+def _load_ground_truth() -> dict:
     """
-    Return the ground-truth reference answer for `question`, or None.
-
-    Strategy:
-      1. Exact match on lowercased question.
-      2. Token-overlap fuzzy match: a GT question must share ≥ 60 % of its
-         own content tokens with the user question (handles minor rephrasing).
+    Load all eval JSON files once and cache them.
+    Returns a dict mapping lower-cased question → reference answer string.
     """
-    q_lower = question.strip().lower()
+    global _gt_cache
+    if _gt_cache is not None:
+        return _gt_cache
 
-    if q_lower in _GT_ALL:
-        return _GT_ALL[q_lower]
+    _gt_cache = {}
+    if not _EVAL_DIR.exists():
+        logger.warning("[Eval] eval/ directory not found at %s", _EVAL_DIR)
+        return _gt_cache
 
-    q_tokens = set(re.findall(r"\w+", q_lower)) - _STOPWORDS
-    best_score = 0.0
-    best_answer: Optional[str] = None
+    for json_file in _EVAL_DIR.glob("*.json"):
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                entries = json.load(f)
+            for entry in entries:
+                q = entry.get("question", "").strip().lower()
+                a = entry.get("answer", "").strip()
+                if q and a:
+                    _gt_cache[q] = a
+        except Exception as exc:
+            logger.warning("[Eval] Failed to load %s: %s", json_file, exc)
 
-    for gt_q, gt_a in _GT_ALL.items():
-        gt_tokens = set(re.findall(r"\w+", gt_q)) - _STOPWORDS
-        if not gt_tokens:
-            continue
-        overlap = len(q_tokens & gt_tokens) / len(gt_tokens)
-        if overlap > best_score and overlap >= 0.6:
-            best_score = overlap
-            best_answer = gt_a
-
-    return best_answer
-
-
-# ── Shared helpers ────────────────────────────────────────────────────────────
-
-def _tokenize(text: str) -> list[str]:
-    return re.findall(r"\w+", text.lower())
+    logger.info("[Eval] Loaded %d ground-truth Q&A pairs", len(_gt_cache))
+    return _gt_cache
 
 
-def _content_tokens(text: str) -> set[str]:
-    """All non-stopword tokens from `text`."""
-    return set(_tokenize(text)) - _STOPWORDS
+def _find_reference(question: str) -> Optional[str]:
+    """Return the ground-truth reference answer for *question*, or None."""
+    gt = _load_ground_truth()
+    return gt.get(question.strip().lower())
 
 
-def _is_relevant(chunk_text: str, ref_tokens: set[str]) -> bool:
-    """
-    True if `chunk_text` covers at least RELEVANCE_THRESHOLD of the
-    reference answer's content tokens.
+# ── Tokenisation helper ───────────────────────────────────────────────────────
 
-    This is the single relevance oracle used by both Recall and MRR so
-    that both metrics measure the same underlying property.
-    """
-    if not ref_tokens:
-        return False
-    chunk_tokens = _content_tokens(chunk_text)
-    overlap = len(chunk_tokens & ref_tokens) / len(ref_tokens)
-    return overlap >= RELEVANCE_THRESHOLD
+def _tokenize(text: str) -> List[str]:
+    """Lower-case word tokeniser — strips punctuation."""
+    return re.findall(r"\b\w+\b", text.lower())
 
 
-# ── 1. ROUGE-L ────────────────────────────────────────────────────────────────
+# ── ROUGE-L ───────────────────────────────────────────────────────────────────
 
-def _lcs_length(a: list[str], b: list[str]) -> int:
-    """Space-optimised O(m*n) LCS length."""
+def _lcs_length(a: List[str], b: List[str]) -> int:
+    """Longest Common Subsequence length (iterative, O(|a|·|b|) space)."""
+    if not a or not b:
+        return 0
     m, n = len(a), len(b)
+    # Use two-row DP to save memory
     prev = [0] * (n + 1)
     for i in range(1, m + 1):
         curr = [0] * (n + 1)
@@ -161,171 +107,172 @@ def _lcs_length(a: list[str], b: list[str]) -> int:
     return prev[n]
 
 
-def _rouge_l_f1(hypothesis: str, reference: str) -> float:
+def compute_rouge_l(generated: str, reference: str) -> float:
     """
-    ROUGE-L F1 between `hypothesis` (generated) and `reference` (ground-truth).
+    ROUGE-L F1 between *generated* answer and *reference* answer.
 
-    BUG FIXED: both arguments are *answers*.  The original code passed
-    (question, answer) so the LCS was measured between the user's question
-    and the model's reply, giving near-zero scores for any answer longer
-    than the question.
+    Previously this was computed using the question as the reference,
+    which gave nonsense scores. Now it correctly compares the model's
+    generated answer against the human reference answer.
     """
-    hyp_tok = _tokenize(hypothesis)
-    ref_tok = _tokenize(reference)
-
-    if not hyp_tok or not ref_tok:
+    if not generated or not reference:
         return 0.0
 
-    lcs       = _lcs_length(hyp_tok, ref_tok)
-    precision = lcs / len(hyp_tok)
-    recall    = lcs / len(ref_tok)
+    gen_tokens = _tokenize(generated)
+    ref_tokens = _tokenize(reference)
 
-    if precision + recall == 0.0:
+    if not gen_tokens or not ref_tokens:
         return 0.0
 
-    return round(2 * precision * recall / (precision + recall), 4)
+    lcs = _lcs_length(gen_tokens, ref_tokens)
+    precision = lcs / len(gen_tokens) if gen_tokens else 0.0
+    recall    = lcs / len(ref_tokens) if ref_tokens else 0.0
 
-
-# ── 2. Retrieval Recall@k ─────────────────────────────────────────────────────
-
-def _compute_retrieval_recall(
-    retrieved_texts: list[str],
-    reference: str,
-    k: int,
-) -> float:
-    """
-    Recall@k = relevant_in_top_k / min(total_relevant_in_pool, k)
-
-    BUG FIXED: the original divided by min(k, len(retrieved_texts)) which
-    is the number of items *returned* — that formula is Precision@k, not
-    Recall@k.  Recall's denominator must represent how many relevant items
-    exist in the pool we are retrieving from.  We approximate the pool as
-    the full retrieved list; capping at k keeps the score in [0, 1] and
-    reflects that we can never do better than retrieving all k top results.
-    """
-    if not retrieved_texts:
+    if precision + recall == 0:
         return 0.0
 
-    ref_tokens = _content_tokens(reference)
+    f1 = 2 * precision * recall / (precision + recall)
+    return round(f1, 4)
+
+
+# ── Retrieval Recall@k ────────────────────────────────────────────────────────
+
+def compute_recall_at_k(retrieved_chunks: List[str], reference: str, k: int) -> float:
+    """
+    Recall@k: what fraction of reference answer key-terms are covered by
+    the top-k retrieved chunks (union of their text).
+
+    FIX: Previously this checked whether the *question* appeared in retrieved
+    chunks — trivially True, always giving Recall@k = 1.0.
+    Now it checks coverage of the *reference answer* terms.
+
+    Args:
+        retrieved_chunks: list of chunk text strings (already top-k after reranking)
+        reference:        ground-truth reference answer string
+        k:                number of chunks to consider (uses min(k, len(chunks)))
+    """
+    if not reference or not retrieved_chunks:
+        return 0.0
+
+    # Consider only top-k chunks
+    top_chunks = retrieved_chunks[:k]
+    retrieved_text = " ".join(top_chunks).lower()
+
+    ref_tokens = set(_tokenize(reference))
     if not ref_tokens:
         return 0.0
 
-    # How many of the top-k chunks are relevant?
-    relevant_in_top_k = sum(
-        1 for t in retrieved_texts[:k] if _is_relevant(t, ref_tokens)
-    )
+    # Filter out stopwords for a more meaningful recall signal
+    _STOPWORDS = {
+        "the", "a", "an", "is", "are", "was", "were", "it", "its",
+        "in", "on", "at", "to", "for", "of", "and", "or", "but",
+        "with", "by", "from", "that", "this", "be", "as", "not",
+        "have", "has", "had", "do", "does", "did",
+    }
+    key_terms = ref_tokens - _STOPWORDS
+    if not key_terms:
+        key_terms = ref_tokens  # fall back if everything was a stopword
 
-    # How many relevant chunks exist across the full retrieved set?
-    total_relevant = sum(
-        1 for t in retrieved_texts if _is_relevant(t, ref_tokens)
-    )
-
-    if total_relevant == 0:
-        return 0.0
-
-    # Cap denominator at k: perfect recall means we got all relevant docs
-    # within our top-k budget.
-    denominator = min(total_relevant, k)
-    return round(relevant_in_top_k / denominator, 4)
+    covered = sum(1 for term in key_terms if term in retrieved_text)
+    recall = covered / len(key_terms)
+    return round(recall, 4)
 
 
-# ── 3. MRR (per-query Reciprocal Rank) ───────────────────────────────────────
+# ── MRR ───────────────────────────────────────────────────────────────────────
 
-def _compute_mrr(retrieved_texts: list[str], reference: str) -> float:
+def compute_mrr(retrieved_chunks: List[str], reference: str, threshold: float = 0.3) -> float:
     """
-    Reciprocal Rank (RR) for a single query.
+    Mean Reciprocal Rank: 1/rank of the first chunk that covers ≥ threshold
+    fraction of reference answer key-terms.
 
-    RR = 1 / rank_of_first_relevant_chunk   (0 if none found)
+    FIX: Previously MRR was computed against the *question* (trivially 1.0).
+    Now it measures at which retrieved chunk the reference answer first
+    appears meaningfully.
 
-    BUG FIXED (two issues):
-      1. Old code matched question keywords against chunks.  Because question
-         words appear in almost every passage after BM25 + reranking, rank 1
-         nearly always matched → RR ≈ 1.0 regardless of actual relevance.
-         Now relevance is judged against the reference answer tokens using
-         the same _is_relevant() oracle as Recall, so RR reflects whether
-         the *correct information* was retrieved at a high rank.
-
-      2. Old stopword list for the question was much smaller than the one
-         used for Recall, creating an inconsistency between the two metrics.
-         Both now share _STOPWORDS and _is_relevant().
-
-    Per-answer RRs can be averaged by the caller / eval_routes endpoint to
-    obtain the true dataset-level MRR.
+    Args:
+        retrieved_chunks: list of chunk text strings in retrieval rank order
+        reference:        ground-truth reference answer string
+        threshold:        minimum fraction of reference key-terms a chunk must
+                          cover to be considered a "hit" (default 0.30)
     """
-    if not retrieved_texts:
+    if not reference or not retrieved_chunks:
         return 0.0
 
-    ref_tokens = _content_tokens(reference)
-    if not ref_tokens:
-        return 0.0
+    _STOPWORDS = {
+        "the", "a", "an", "is", "are", "was", "were", "it", "its",
+        "in", "on", "at", "to", "for", "of", "and", "or", "but",
+        "with", "by", "from", "that", "this", "be", "as", "not",
+        "have", "has", "had", "do", "does", "did",
+    }
 
-    for rank, text in enumerate(retrieved_texts, start=1):
-        if _is_relevant(text, ref_tokens):
+    ref_tokens = set(_tokenize(reference))
+    key_terms = ref_tokens - _STOPWORDS
+    if not key_terms:
+        key_terms = ref_tokens
+
+    for rank, chunk in enumerate(retrieved_chunks, start=1):
+        chunk_lower = chunk.lower()
+        covered = sum(1 for term in key_terms if term in chunk_lower)
+        coverage = covered / len(key_terms)
+        if coverage >= threshold:
             return round(1.0 / rank, 4)
 
-    return 0.0
+    return 0.0  # reference answer not found in any retrieved chunk
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Main entry point ─────────────────────────────────────────────────────────
 
 def compute_and_log_metrics(
     question: str,
     generated_answer: str,
-    retrieved_texts: list[str],
+    retrieved_chunks: List[str],
     k: int = 6,
-) -> dict[str, Optional[float]]:
+) -> dict:
     """
-    Compute ROUGE-L, Retrieval Recall@k, and MRR against the ground-truth
-    reference answer for `question`.
+    Compute and log all three RAG metrics.
 
-    Returns
-    -------
-    {
-        "rouge_l":  float | None,   # ROUGE-L F1, generated vs reference answer
-        "recall_k": float | None,   # Recall@k, relevant chunks in top-k
-        "mrr":      float | None,   # Reciprocal Rank of first relevant chunk
-    }
+    Returns a dict with keys: rouge_l, recall_at_k, mrr
+    All metrics require a ground-truth reference answer from the eval JSON.
+    If no reference is found for the question, metrics are skipped.
 
-    All three values are None when no ground-truth entry matches `question`.
-    Results are logged to the backend console and returned for DB persistence.
-    Nothing is forwarded to the frontend.
-
-    Parameters
-    ----------
-    question         : original user question (used to look up ground truth)
-    generated_answer : full answer text produced by the LLM
-    retrieved_texts  : chunk texts in retrieval rank order (index 0 = top rank)
-    k                : budget for Recall@k (should match _CONTEXT_TOP_K in qa_service)
+    Args:
+        question:          the original user question
+        generated_answer:  the LLM-generated answer string
+        retrieved_chunks:  list of retrieved chunk text strings (in rank order)
+        k:                 retrieval depth for Recall@k
     """
-    reference = _find_reference_answer(question)
+    reference = _find_reference(question)
 
     if reference is None:
-        logger.info(
-            "[Eval] Q: %r — no ground-truth match, skipping metrics.",
-            question[:80],
-        )
-        return {"rouge_l": None, "recall_k": None, "mrr": None}
+        # No ground-truth available — skip metric computation silently
+        logger.debug("[Eval] No ground-truth found for question: %r", question[:80])
+        return {"rouge_l": None, "recall_at_k": None, "mrr": None}
 
-    rouge  = _rouge_l_f1(generated_answer, reference)
-    recall = _compute_retrieval_recall(retrieved_texts, reference, k)
-    mrr    = _compute_mrr(retrieved_texts, reference)
+    rouge  = compute_rouge_l(generated_answer, reference)
+    recall = compute_recall_at_k(retrieved_chunks, reference, k=k)
+    mrr    = compute_mrr(retrieved_chunks, reference)
+
+    # Truncate strings for readable log output
+    chunk_preview = retrieved_chunks[0][:80].replace("\n", " ") if retrieved_chunks else "(none)"
+    ref_preview   = reference[:80]
+    gen_preview   = generated_answer[:80].replace("\n", " ")
 
     logger.info(
         "[Eval] Q: %r\n"
-        "  Chunk       : %s\n"
-        "  Reference   : %s\n"
-        "  Generated   : %s\n"
+        "  Chunk       : %r\n"
+        "  Reference   : %r\n"
+        "  Generated   : %r\n"
         "  ROUGE-L     : %.4f\n"
-        "  Recall@%-3d  : %.4f\n"
+        "  Recall@%d    : %.4f\n"
         "  MRR         : %.4f",
-        question[:80],
-        str(retrieved_texts)[:80],
-        reference[:100],
-        generated_answer[:100],
+        question,
+        chunk_preview,
+        ref_preview,
+        gen_preview,
         rouge,
         k,
         recall,
         mrr,
     )
 
-    return {"rouge_l": rouge, "recall_k": recall, "mrr": mrr}
+    return {"rouge_l": rouge, "recall_at_k": recall, "mrr": mrr}

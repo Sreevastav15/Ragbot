@@ -2,6 +2,11 @@
 """
 Hybrid retrieval: BM25 (keyword) + vector (semantic) with score fusion.
 Falls back gracefully to vector-only if BM25 index is unavailable.
+
+FIX: BM25 documents now emit "source_filename" in their metadata (not "source"),
+matching the key that _build_context() in qa_service.py expects.
+The qa_service already overwrites this after retrieval, but using the correct key
+from the start prevents silent fallback to "Unknown" if the overwrite were skipped.
 """
 
 from __future__ import annotations
@@ -36,7 +41,10 @@ def bm25_retrieve(query: str, db_chunks, top_k: int = 15) -> List[LCDoc]:
                         "page_number": chunk.page_number,
                         "bm25_score": float(score),
                         "document_id": chunk.document_id,
-                        "source": getattr(chunk, "_source_filename", ""),
+                        # Use "source_filename" to match what _build_context() reads.
+                        # _source_filename is set on the ORM chunk object by qa_service
+                        # before this function is called.
+                        "source_filename": getattr(chunk, "_source_filename", ""),
                     },
                 )
             )
