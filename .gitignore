@@ -59,6 +59,7 @@ sentence_transformers/
 chromadb/
 chroma/
 db/
+static/
 
 # Large files
 
