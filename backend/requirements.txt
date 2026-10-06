@@ -4,16 +4,20 @@ sqlalchemy
 pydantic
 python-multipart
 
-langchain
-langchain-community
-langchain-core
+langchain==0.2.16
+langchain-community==0.2.16
+langchain-core==0.2.41
 langchain-text-splitters
 langchain-google-genai
 google-generativeai
-langchain-groq
+langchain-groq==0.1.9
+langchain-openai==0.1.8
 
 chromadb
 psycopg2
+
+ragas==0.1.9
+datasets
 
 pypdf
 PyPDF2

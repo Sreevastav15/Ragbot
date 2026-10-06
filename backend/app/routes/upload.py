@@ -1,4 +1,5 @@
 # backend/routes/upload.py
+import logging
 from fastapi import APIRouter, UploadFile, Depends, File
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ import shutil, os
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
+logger = logging.getLogger(__name__)
 
 def get_db():
     db = SessionLocal()
@@ -56,6 +58,8 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
     db.add(doc)
     db.commit()
     db.refresh(doc)
+
+    logger.info("Doc Uploaded. Doc ID: %d", doc.id)
 
     # Store chunks in DB for BM25 hybrid search
     for idx, chunk in enumerate(chunks):

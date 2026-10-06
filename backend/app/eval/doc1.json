@@ -38,25 +38,5 @@
   {
     "question": "Why is a low learning rate used in fine-tuning?",
     "answer": "To avoid large weight updates that could destroy pre-trained features."
-  },
-  {
-    "question": "What is the purpose of fine-tuning only the last layers?",
-    "answer": "To adapt the model to domain-specific features while preventing overfitting."
-  },
-  {
-    "question": "What accuracy was achieved after fine-tuning in two-class classification?",
-    "answer": "Approximately 90.72% testing accuracy."
-  },
-  {
-    "question": "What is a false positive in this context?",
-    "answer": "Incorrectly classifying a snow-covered road as bare or vice versa."
-  },
-  {
-    "question": "Why is false positive for bare roads critical?",
-    "answer": "Because it can compromise safety by underestimating hazardous conditions."
-  },
-  {
-    "question": "How were the training images collected?",
-    "answer": "Using patrol vehicles and mobile data collection units at regular intervals."
   }
 ]

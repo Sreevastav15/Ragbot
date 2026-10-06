@@ -23,11 +23,11 @@ QA_TEMPLATE = PromptTemplate(
     template="""You are an expert document analyst. Your job is to answer the user's
 question using ONLY the information found in the document context below.
 
-### Conversation History
-{conversation_memory}
-
 ### Document Context
 {context}
+
+### Conversation History
+{conversation_memory}
 
 ### Instructions
 - Base your answer solely on the Document Context above.

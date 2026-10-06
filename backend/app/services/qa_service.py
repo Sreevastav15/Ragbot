@@ -28,7 +28,7 @@ import os
 import time
 from typing import Generator, List, Optional
 
-from langchain.chains import LLMChain
+from langchain_core.output_parsers import StrOutputParser
 from langchain_community.vectorstores import Chroma
 from langchain_groq import ChatGroq
 from langchain_core.documents import Document as LCDoc
@@ -140,11 +140,11 @@ def get_answer(
     t0 = time.time()
 
     # ── 1. Query rewriting ────────────────────────────────────────────────────
-    rewritten = rewrite_query(question)
+    rewritten = question
     k = compute_k(question)
 
     logger.info(
-        "Rewritten Query: %r\n"
+        "Query: %r\n"
         "k              : %d",
         rewritten,
         k,
@@ -183,13 +183,14 @@ def get_answer(
     memory_str = _build_memory(summary, chat_history)
 
     # ── 5. LLMChain with PromptTemplate + OutputParser ────────────────────────
-    chain = LLMChain(llm=_build_llm(), prompt=QA_TEMPLATE)
-    raw = chain.run(
-        context=context_str,
-        conversation_memory=memory_str,
-        question=question,
-        format_instructions=QA_FORMAT_INSTRUCTIONS,
-    )
+    chain = QA_TEMPLATE | _build_llm() | StrOutputParser()
+
+    raw = chain.invoke({
+        "context": context_str,
+        "conversation_memory": memory_str,
+        "question": question,
+        "format_instructions": QA_FORMAT_INSTRUCTIONS,
+    })
 
     parsed = safe_parse_qa(raw, question)
     final_answer = parsed.answer
@@ -203,7 +204,7 @@ def get_answer(
     # ── 6. Evaluation metrics (logged, not returned) ──────────────────────────
     # Pass chunk text in reranker rank order so MRR reflects actual retrieval rank.
     retrieved_texts = [doc.page_content for doc in reranked]
-    compute_and_log_metrics(question, final_answer, retrieved_texts, k=_CONTEXT_TOP_K)
+    # compute_and_log_metrics(question, final_answer, retrieved_texts, k=_CONTEXT_TOP_K)
 
     elapsed_ms = int((time.time() - t0) * 1000)
 

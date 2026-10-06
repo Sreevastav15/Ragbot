@@ -38,25 +38,5 @@
   {
     "question": "How does EfficientNet-B7 perform on ImageNet?",
     "answer": "It achieves 84.3% top-1 accuracy."
-  },
-  {
-    "question": "How does EfficientNet compare to GPipe?",
-    "answer": "It achieves similar accuracy while being 8.4x smaller and 6.1x faster."
-  },
-  {
-    "question": "Why does higher resolution improve performance?",
-    "answer": "Because it captures more fine-grained patterns in images."
-  },
-  {
-    "question": "What happens when networks become too deep?",
-    "answer": "Training becomes difficult and accuracy gains diminish."
-  },
-  {
-    "question": "What is the key observation about scaling dimensions?",
-    "answer": "They are interdependent and must be balanced for optimal performance."
-  },
-  {
-    "question": "How are EfficientNet models B1 to B7 created?",
-    "answer": "By scaling the baseline network using fixed compound scaling coefficients."
   }
 ]
